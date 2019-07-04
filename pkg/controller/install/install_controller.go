@@ -6,7 +6,12 @@ import (
 	"fmt"
 	"path/filepath"
 
+	// "io/ioutil"
+	// "os"
+	// "strings"
+
 	tektonv1alpha1 "github.com/openshift/tektoncd-pipeline-operator/pkg/apis/tekton/v1alpha1"
+	"github.com/openshift/tektoncd-pipeline-operator/pkg/controller/install/common"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 
 	mf "github.com/jcrossley3/manifestival"
@@ -30,6 +35,9 @@ var (
 	autoInstall   bool
 	recursive     bool
 	log           = logf.Log.WithName("controller_install")
+	// prefix        = "$REPO-REFIX"
+	// Platform-specific behavior to affect the installation
+	activities common.Activities
 )
 
 func init() {
@@ -58,12 +66,43 @@ func init() {
 // Add creates a new Install Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
+	// err := replacePrefix(resourceDir)
+	// if err != nil {
+	// 	return err
+	// }
 	m, err := mf.NewManifest(resourceDir, recursive, mgr.GetClient())
 	if err != nil {
 		return err
 	}
 	return add(mgr, newReconciler(mgr, m))
 }
+
+// func replacePrefix(path string) error {
+// 	repoPrefix := resolveEnv(prefix)
+// 	if repoPrefix == "" {
+// 		return nil
+// 	}
+// 	yamlPath := path + "/release.yaml"
+// 	read, err := ioutil.ReadFile(yamlPath)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	newContents := strings.Replace(string(read), "REPLACE_REPO", repoPrefix, -1)
+
+// 	err = ioutil.WriteFile(yamlPath, []byte(newContents), 0)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	return nil
+// }
+
+// func resolveEnv(x string) string {
+// 	if len(x) > 1 && x[:1] == "$" {
+// 		return os.Getenv(x[1:])
+// 	}
+// 	return x
+// }
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, m mf.Manifest) reconcile.Reconciler {
@@ -177,16 +216,37 @@ func (r *ReconcileInstall) Reconcile(request reconcile.Request) (reconcile.Resul
 }
 
 func (r *ReconcileInstall) install(instance *tektonv1alpha1.Install) error {
-	tfs := []mf.Transformer{
-		mf.InjectOwner(instance),
-		mf.InjectNamespace(instance.GetNamespace()),
-	}
+	// tfs := []mf.Transformer{
+	// 	mf.InjectOwner(instance),
+	// 	mf.InjectNamespace(instance.GetNamespace()),
+	// }
 
-	err := r.manifest.Transform(tfs...)
+	// err := r.manifest.Transform(tfs...)
+	// if err != nil {
+	// 	return err
+	// }
+	// return r.manifest.ApplyAll()
+	extensions, err := activities.Extend(r.client, r.scheme, instance)
 	if err != nil {
 		return err
 	}
-	return r.manifest.ApplyAll()
+
+	err = r.manifest.Transform(extensions.Transform(instance)...)
+	if err == nil {
+		err = extensions.PreInstall(instance)
+		if err == nil {
+			log.Info("*********************************")
+			err = r.manifest.ApplyAll()
+			if err == nil {
+				err = extensions.PostInstall(instance)
+			}
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func isUptodate(instance *tektonv1alpha1.Install) bool {
