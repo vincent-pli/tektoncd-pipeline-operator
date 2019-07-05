@@ -28,6 +28,16 @@ spec:
         metadata:
           type: object
         spec:
+          properties:
+            registry:
+              description: A means to override the registry for all knative images.
+              type: object
+              properties:
+                override:
+                  description: A map of a container name to the full image location of the individual knative container.
+                  type: object
+                  additionalProperties:
+                    type: string
           type: object
         status:
           properties:
